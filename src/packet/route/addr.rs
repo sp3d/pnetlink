@@ -1,19 +1,24 @@
 //! Address operations
-use packet::route::{IfAddrCacheInfoPacket,MutableIfInfoPacket,IfAddrPacket,MutableIfAddrPacket,RtAttrIterator,RtAttrPacket,MutableRtAttrPacket,RtAttrMtuPacket};
+use packet::route::{IfAddrCacheInfoPacket,MutableIfInfoPacket,IfAddrPacket,MutableIfAddrPacket,RtAttrIterator,RtAttrPacket,MutableRtAttrPacket};
 use packet::route::link::Link;
-use packet::netlink::{MutableNetlinkPacket,NetlinkPacket,NetlinkErrorPacket};
+use packet::netlink::NetlinkPacket;
 use packet::netlink::NetlinkMsgFlags;
 use packet::netlink::{NetlinkBufIterator,NetlinkReader,NetlinkRequestBuilder};
-use socket::{NetlinkSocket,NetlinkProtocol};
 use packet::netlink::NetlinkConnection;
 use pnet::packet::MutablePacket;
 use pnet::packet::Packet;
+use std::io::{Read,Write,Cursor,self};
+use byteorder::{BigEndian, ReadBytesExt};
+use std::net::{Ipv4Addr,Ipv6Addr, IpAddr};
+
+/*
+use socket::{NetlinkSocket,NetlinkProtocol};
+use packet::netlink::{MutableNetlinkPacket,NetlinkErrorPacket};
+use packet::route::RtAttrMtuPacket;
 use pnet::packet::PacketSize;
 use pnet::util::MacAddr;
 use libc;
-use std::io::{Read,Write,Cursor,self};
-use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
-use std::net::{Ipv4Addr,Ipv6Addr, IpAddr};
+*/
 
 pub const RTM_NEWADDR: u16 = 20;
 pub const RTM_DELADDR: u16 = 21;
@@ -128,15 +133,15 @@ impl ToByteVec for IpAddr {
 
 /// Address operations trait
 pub trait Addresses where Self: Read + Write {
-    fn iter_addrs<'a>(&'a mut self, family: Option<u8>) -> io::Result<Box<Iterator<Item = Addr> + 'a>>;
-    fn get_link_addrs<'a,'b>(&'a mut self, family: Option<u8>, link: &'b Link) -> io::Result<Box<Iterator<Item = Addr> + 'a>>;
+    fn iter_addrs<'a>(&'a mut self, family: Option<u8>) -> io::Result<Box<dyn Iterator<Item = Addr> + 'a>>;
+    fn get_link_addrs<'a,'b>(&'a mut self, family: Option<u8>, link: &'b Link) -> io::Result<Box<dyn Iterator<Item = Addr> + 'a>>;
     fn add_addr<'a,'b>(&'a mut self, link: &'b Link, addr: IpAddr, dst_addr: Option<IpAddr>,
                        scope: Scope, netmask_bits: u8) -> io::Result<()>;
 }
 
 impl Addresses for NetlinkConnection {
     /// Iterate over all addresses
-    fn iter_addrs<'a>(&'a mut self, family: Option<u8>) -> io::Result<Box<Iterator<Item = Addr> + 'a>> {
+    fn iter_addrs<'a>(&'a mut self, family: Option<u8>) -> io::Result<Box<dyn Iterator<Item = Addr> + 'a>> {
         let mut buf = vec![0; MutableIfInfoPacket::minimum_packet_size()];
         let req = NetlinkRequestBuilder::new(RTM_GETADDR, NetlinkMsgFlags::NLM_F_DUMP)
             .append({
@@ -144,14 +149,14 @@ impl Addresses for NetlinkConnection {
                 ifinfo.set_family(family.unwrap_or(0));
                 ifinfo
             }).build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         let iter = AddrsIterator { iter: reader.into_iter() };
         Ok(Box::new(iter))
     }
 
     /// Iterate over `family` addresses for `link`
-    fn get_link_addrs<'a,'b>(&'a mut self, family: Option<u8>, link: &'b Link) -> io::Result<Box<Iterator<Item = Addr> + 'a>> {
+    fn get_link_addrs<'a,'b>(&'a mut self, family: Option<u8>, link: &'b Link) -> io::Result<Box<dyn Iterator<Item = Addr> + 'a>> {
         let idx = link.get_index();
         let mut buf = vec![0; MutableIfInfoPacket::minimum_packet_size()];
         let req = NetlinkRequestBuilder::new(RTM_GETADDR, NetlinkMsgFlags::NLM_F_DUMP)
@@ -160,7 +165,7 @@ impl Addresses for NetlinkConnection {
                 ifinfo.set_family(family.unwrap_or(0));
                 ifinfo
             }).build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         let iter = AddrsIterator { iter: reader.into_iter() };
         Ok(Box::new(iter.filter(move |addr| addr.with_ifaddr(|ifa| ifa.get_index() == idx))))
@@ -179,7 +184,6 @@ impl Addresses for NetlinkConnection {
             IpAddr::V6(_) => 10,
         };
         let ip_addr_len = addr.bytes().len();
-        let mut buf = vec![0; MutableIfAddrPacket::minimum_packet_size()];
         let mut rta_buf = vec![0; MutableRtAttrPacket::minimum_packet_size() + ip_addr_len];
         let mut rta_buf1 = vec![0; MutableRtAttrPacket::minimum_packet_size() + ip_addr_len];
         let req = IfAddrRequestBuilder::new().with_ifa(|mut ifaddr| {
@@ -192,7 +196,7 @@ impl Addresses for NetlinkConnection {
                 let mut pkt = MutableRtAttrPacket::new(&mut rta_buf).unwrap();
                 pkt.set_rta_len(4 + ip_addr_len as u16);
                 pkt.set_rta_type(IFA_ADDRESS);
-                let mut pl = pkt.payload_mut();
+                let pl = pkt.payload_mut();
                 pl.copy_from_slice(&dst_addr.as_ref().unwrap_or_else(|| &addr).bytes());
             }
             RtAttrPacket::new(&mut rta_buf).unwrap()
@@ -201,14 +205,14 @@ impl Addresses for NetlinkConnection {
                 let mut pkt = MutableRtAttrPacket::new(&mut rta_buf1).unwrap();
                 pkt.set_rta_len(4 + ip_addr_len as u16);
                 pkt.set_rta_type(IFA_LOCAL);
-                let mut pl = pkt.payload_mut();
+                let pl = pkt.payload_mut();
                 pl.copy_from_slice(&addr.bytes());
             }
             RtAttrPacket::new(&mut rta_buf1).unwrap()
         }).build();
         let req = NetlinkRequestBuilder::new(RTM_NEWADDR, NetlinkMsgFlags::NLM_F_CREATE | NetlinkMsgFlags::NLM_F_EXCL | NetlinkMsgFlags::NLM_F_ACK)
             .append(req).build();
-        self.write(req.packet());
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         reader.read_to_end()
     }
@@ -391,7 +395,7 @@ impl Addr {
             ifinfo.set_family(0 /* AF_UNSPEC */);
             ifinfo
         }).build();
-        let mut reply = conn.send(req);
+        let reply = conn.send(req);
         AddrsIterator { iter: reply.into_iter() }
     }
 }

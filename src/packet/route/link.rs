@@ -114,8 +114,8 @@ pub enum LinkType {
     Bridge
 }
 
-/// Interface (link) flags
 bitflags! {
+    /// Interface (link) flags
     pub struct IfFlags: u32 {
         /// interface is up
         const UP      =    0x1;
@@ -234,14 +234,13 @@ impl Links for NetlinkConnection {
                 IfInfoPacketBuilder::new()
                     .build()
             ).build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         Ok(Box::new(LinksIterator { iter: reader.into_iter() }))
     }
 
     fn get_link_by_index(&mut self, index: u32) -> io::Result<Option<Link>> {
         let req = {
-            let buf = vec![0; MutableIfInfoPacket::minimum_packet_size()];
             NetlinkRequestBuilder::new(RTM_GETLINK, NetlinkMsgFlags::NLM_F_ACK)
             .append(
                 IfInfoPacketBuilder::new()
@@ -249,7 +248,7 @@ impl Links for NetlinkConnection {
                     .build()
             ).build()
         };
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         let li = LinksIterator { iter: reader.into_iter() };
         Ok(li.last())
@@ -262,7 +261,7 @@ impl Links for NetlinkConnection {
                     RtAttrPacket::create_with_payload(IFLA_IFNAME, name)).build()
             }).build()
         };
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         let li = LinksIterator { iter: reader.into_iter() };
         Ok(li.last())
@@ -277,7 +276,7 @@ impl Links for NetlinkConnection {
         };
         let req = NetlinkRequestBuilder::new(RTM_NEWLINK, NetlinkMsgFlags::NLM_F_CREATE | NetlinkMsgFlags::NLM_F_EXCL | NetlinkMsgFlags::NLM_F_ACK)
             .append(ifi).build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         reader.read_to_end()
     }
@@ -294,7 +293,7 @@ impl Links for NetlinkConnection {
                 ifinfo
             }).build()
         };
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         reader.read_to_end()
     }
@@ -313,7 +312,7 @@ impl Links for NetlinkConnection {
                 }).build()
         };
 
-       try!(self.write(req.packet()));
+       self.write(req.packet())?;
        let reader = NetlinkReader::new(self);
        reader.read_to_end()
     }
@@ -332,7 +331,7 @@ impl Links for NetlinkConnection {
                 }).build()
         };
 
-       try!(self.write(req.packet()));
+       self.write(req.packet())?;
        let reader = NetlinkReader::new(self);
        reader.read_to_end()
     }

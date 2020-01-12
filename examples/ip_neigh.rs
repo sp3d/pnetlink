@@ -3,8 +3,8 @@ extern crate pnetlink;
 use std::collections::HashMap;
 
 use pnetlink::packet::netlink::NetlinkConnection;
-use pnetlink::packet::route::link::{Links, Link};
-use pnetlink::packet::route::neighbour::{Neighbour, Neighbours, NeighbourState};
+use pnetlink::packet::route::link::Links;
+use pnetlink::packet::route::neighbour::{Neighbours, NeighbourState};
 
 fn main() {
     let mut conn = NetlinkConnection::new();

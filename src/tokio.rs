@@ -1,45 +1,50 @@
 use bytes::BytesMut;
-use futures::{Future, Poll, Async};
+use futures::task::Poll;
 use std::io;
-use tokio_core::reactor::{Handle, PollEvented};
-use tokio_io;
+use tokio_crate::io::PollEvented;
 use ::socket;
-use ::packet::netlink::{NetlinkPacket,MutableNetlinkPacket,NetlinkMsgFlags,self};
-use ::packet::route::{IfInfoPacket,MutableIfInfoPacket};
-use pnet::packet::{Packet,PacketSize,FromPacket};
+use ::packet::netlink::{NetlinkPacket,MutableNetlinkPacket,NetlinkMsgFlags};
+use pnet::packet::{Packet,PacketSize};
+use std::pin::Pin;
+use futures::task::Context;
+use futures::pin_mut;
+
+#[cfg(test)]
+use ::packet::route::{MutableIfInfoPacket};
 
 pub struct NetlinkSocket {
     io: PollEvented<::socket::NetlinkSocket>,
 }
 
 impl NetlinkSocket {
-    pub fn bind(proto: socket::NetlinkProtocol, groups: u32, handle: &Handle) -> io::Result<NetlinkSocket> {
-        let sock = try!(socket::NetlinkSocket::bind(proto, groups));
-        NetlinkSocket::new(sock, handle)
+    pub fn bind(proto: socket::NetlinkProtocol, groups: u32) -> io::Result<NetlinkSocket> {
+        let sock = socket::NetlinkSocket::bind(proto, groups)?;
+        NetlinkSocket::new(sock)
     }
 
-    fn new(socket: ::socket::NetlinkSocket, handle: &Handle) -> io::Result<NetlinkSocket> {
-        let io = try!(PollEvented::new(socket, handle));
+    fn new(socket: ::socket::NetlinkSocket) -> io::Result<NetlinkSocket> {
+        let io = PollEvented::new(socket)?;
         Ok(NetlinkSocket { io: io })
     }
 
-    /// Test whether this socket is ready to be read or not.
-    pub fn poll_read(&self) -> Async<()> {
+/*    /// Test whether this socket is ready to be read or not.
+    pub fn poll_read(&self) -> Poll<()> {
         self.io.poll_read()
     }
 
     /// Test whether this socket is writey to be written to or not.
-    pub fn poll_write(&self) -> Async<()> {
+    pub fn poll_write(&self) -> Poll<()> {
         self.io.poll_write()
-    }
+    }*/
 }
 
 impl io::Read for NetlinkSocket {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.io.read(buf)
+        self.io.get_mut().read(buf)
     }
 
     fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
+        #![allow(unreachable_code)] //ask the former author why they wrote this
         buf.resize(4096, 0);
         let mut write_at = 0;
         loop {
@@ -49,10 +54,11 @@ impl io::Read for NetlinkSocket {
                 },
                 Err(e) => {
                     buf.truncate(write_at);
-                    return Err(e);
+                    return Err(e);//drops buf... so why did we truncate?
                 }
             }
         }
+        //never reachable since prior loop either spins or returns
         buf.truncate(write_at);
         return Ok(write_at);
     }
@@ -60,26 +66,65 @@ impl io::Read for NetlinkSocket {
 
 impl io::Write for NetlinkSocket {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.io.write(buf)
+        self.io.get_mut().write(buf)
     }
     fn flush(&mut self) -> io::Result<()> {
-        self.io.flush()
+        self.io.get_mut().flush()
     }
 }
 
 pub struct NetlinkCodec {}
 
-impl tokio_io::AsyncRead for NetlinkSocket {
-}
-
-impl tokio_io::AsyncWrite for NetlinkSocket {
-    fn shutdown(&mut self) -> Poll<(), io::Error> {
-        Ok(().into())
+impl tokio_crate::io::AsyncRead for NetlinkSocket {
+    fn poll_read(
+       mut self: Pin<&mut Self>,
+       cx: &mut Context,
+       buf: &mut [u8]
+    ) -> Poll<Result<usize, io::Error>> {
+		let io = &mut self.io;
+		pin_mut!(io);
+		io.poll_read(cx, buf)
     }
 }
 
+impl tokio_crate::io::AsyncWrite for NetlinkSocket {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8]
+	) -> Poll<Result<usize, io::Error>> {
+		let io = &mut self.io;
+		let out = {
+			pin_mut!(io);
+			io.poll_write(cx, buf)
+		};
+	    //self.io = io;
+	    out
+	}
 
-impl tokio_io::codec::Decoder for NetlinkCodec {
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context
+	) -> Poll<Result<(), io::Error>> {
+		let io = &mut self.io;
+		let out = {
+			pin_mut!(io);
+			io.poll_flush(cx)
+	    };
+	    //self.io = io;
+	    out
+	}
+
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        _cx: &mut Context
+	) -> Poll<Result<(), io::Error>> {
+	    Poll::Ready(Ok(()))
+	}
+}
+
+
+impl tokio_util::codec::Decoder for NetlinkCodec {
     type Item = NetlinkPacket<'static>;
     type Error = io::Error;
 
@@ -99,12 +144,12 @@ impl tokio_io::codec::Decoder for NetlinkCodec {
                 return Err(io::Error::new(io::ErrorKind::InvalidData, "malformed netlink packet"))
             }
         };
-        buf.drain_to(len as usize);
+        let _ = buf.split_to(len as usize);
         return Ok(owned_pkt);
     }
 }
 
-impl tokio_io::codec::Encoder for NetlinkCodec {
+impl tokio_util::codec::Encoder for NetlinkCodec {
     type Item = NetlinkPacket<'static>;
     type Error = io::Error;
 
@@ -159,20 +204,19 @@ impl NetlinkRequestBuilder {
 
 #[test]
 fn try_tokio_conn() {
-    use tokio_core::reactor::Core;
-    use futures::{Sink,Stream,Future};
+    use futures::sink::{Sink, SinkExt};
+    use futures::StreamExt;
     use ::packet::route::link::Link;
 
-    let mut l = Core::new().unwrap();
-    let handle = l.handle();
-    let sock = NetlinkSocket::bind(socket::NetlinkProtocol::Route, 0, &handle).unwrap();
+    let mut runtime = tokio_crate::runtime::Builder::new().enable_io().build().unwrap();
+    let sock = runtime.enter(|| NetlinkSocket::bind(socket::NetlinkProtocol::Route, 0).unwrap());
     println!("Netlink socket bound");
-    let framed = tokio_io::AsyncRead::framed(sock, NetlinkCodec {});
+    let mut framed = tokio_util::codec::Framed::new/*tokio_crate::io::AsyncRead::framed*/(sock, NetlinkCodec {});
 
     let pkt = NetlinkRequestBuilder::new(18 /* RTM GETLINK */, NetlinkMsgFlags::NLM_F_DUMP).append(
         {
             let len = MutableIfInfoPacket::minimum_packet_size();
-            let mut data = vec![0; len];
+            let data = vec![0; len];
             MutableIfInfoPacket::owned(data).unwrap()
         }
     ).build();
@@ -186,16 +230,20 @@ fn try_tokio_conn() {
          println!("RECEIVED FRAME: {:?}", frame); Ok(stream)
     });
     */
-    let f = framed.send(pkt).and_then(|stream|
-        stream.for_each(|frame| {
-            println!("RECEIVED FRAME: {:?}", frame);
-            if frame.get_kind() == 16 /* NEW LINK */ {
-                Link::dump_link(frame);
-            }
-            Ok(())
-        })
-    );
-    let s = l.run(f);
+    let s = runtime.block_on(framed.send(pkt));
+    println!("packet sent");
+    loop {
+        match runtime.block_on(framed.next()) {
+            Some(Ok(frame)) => {
+                println!("RECEIVED FRAME: {:?}", frame);
+                if frame.get_kind() == 16 /* NEW LINK */ {
+                    Link::dump_link(frame);
+                }
+            },
+            Some(Err(_e)) => continue,
+            None => break,
+        }
+    }
 }
 
 #[test]
@@ -210,7 +258,7 @@ fn try_mio_conn() {
     let pkt = NetlinkRequestBuilder::new(18 /* RTM GETLINK */, NetlinkMsgFlags::NLM_F_DUMP).append(
         {
             let len = MutableIfInfoPacket::minimum_packet_size();
-            let mut data = vec![0; len];
+            let data = vec![0; len];
             MutableIfInfoPacket::owned(data).unwrap()
         }
     ).build();
@@ -225,7 +273,7 @@ fn try_mio_conn() {
             match event.token() {
                 Token(0) => {
                     println!("EVENT: {:?}", event);
-                    if event.kind() == Ready::writable() {
+                    if event.readiness() == Ready::writable() {
                         use std::io::Write;
                         if !written {
                             println!("WRITABLE");
@@ -233,7 +281,7 @@ fn try_mio_conn() {
                             written = true;
                         }
                     }
-                    if event.kind() & Ready::readable() == Ready::readable() {
+                    if event.readiness() & Ready::readable() == Ready::readable() {
                         use std::io::Read;
                         println!("Reading");
                         'read: loop {

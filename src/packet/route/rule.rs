@@ -1,20 +1,26 @@
 //! Rules operations
-use packet::route::{FibRulePacket,MutableRtMsgPacket,MutableIfInfoPacket,RtAttrIterator,RtAttrPacket,MutableRtAttrPacket};
-use packet::route::link::Link;
-use packet::netlink::{MutableNetlinkPacket,NetlinkPacket,NetlinkErrorPacket};
+use packet::route::{FibRulePacket,MutableIfInfoPacket,RtAttrIterator};
+use packet::netlink::{NetlinkPacket};
 use packet::netlink::NetlinkMsgFlags;
-use packet::netlink::{NetlinkBufIterator,NetlinkReader,NetlinkRequestBuilder};
-use socket::{NetlinkSocket,NetlinkProtocol};
+use packet::netlink::{NetlinkBufIterator,NetlinkRequestBuilder};
 use packet::netlink::NetlinkConnection;
-use pnet::packet::MutablePacket;
 use pnet::packet::Packet;
-use pnet::packet::PacketSize;
-use pnet::util::MacAddr;
-use libc;
 
+/*
+use socket::{NetlinkSocket,NetlinkProtocol};
+use packet::netlink::{NetlinkReader};
+use packet::netlink::{MutableNetlinkPacket,NetlinkErrorPacket};
+use packet::route::{MutableRtMsgPacket,RtAttrPacket,MutableRtAttrPacket};
+use pnet::packet::MutablePacket;
+use libc;
+use pnet::util::MacAddr;
+use pnet::packet::PacketSize;
+use packet::route::link::Link;
 use std::net::Ipv4Addr;
-use std::io::{Read,Cursor,self};
-use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
+*/
+
+use std::io::{Read,Cursor};
+use byteorder::{LittleEndian, ReadBytesExt};
 
 pub const RTM_NEWRULE: u16 = 32;
 pub const RTM_DELRULE: u16 = 33;
@@ -54,12 +60,11 @@ impl Rule {
                 ifinfo.set_family(0 /* AF_UNSPEC */);
                 ifinfo
             }).build();
-        let mut reply = conn.send(req);
+        let reply = conn.send(req);
         RulesIterator { iter: reply.into_iter() }
     }
 
     fn dump_rule(msg: NetlinkPacket) {
-        use std::ffi::CStr;
         if msg.get_kind() != RTM_NEWRULE {
             return;
         }

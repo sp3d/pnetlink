@@ -1,13 +1,17 @@
-use packet::netlink::{MutableNetlinkPacket,NetlinkPacket};
 use packet::netlink::NetlinkMsgFlags;
-use packet::netlink::{NetlinkBufIterator,NetlinkReader,NetlinkRequestBuilder};
-use ::socket::{NetlinkSocket,NetlinkProtocol};
+use packet::netlink::{NetlinkReader,NetlinkRequestBuilder};
 use packet::netlink::NetlinkConnection;
-use pnet::packet::MutablePacket;
 use pnet::packet::Packet;
-use pnet::packet::PacketSize;
-use libc;
 use std::io::{Read,Write};
+
+/*
+use packet::netlink::{MutableNetlinkPacket,NetlinkPacket};
+use packet::netlink::NetlinkBufIterator;
+use pnet::packet::PacketSize;
+use ::socket::{NetlinkSocket,NetlinkProtocol};
+use pnet::packet::MutablePacket;
+use libc;
+*/
 
 include!(concat!(env!("OUT_DIR"), "/audit/audit.rs"));
 
@@ -25,7 +29,7 @@ impl Audit for NetlinkConnection {
                 status.set_enabled(1);
                 status
             }).build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         reader.read_to_end()
     }

@@ -6,7 +6,6 @@ use libc::c_int;
 use libc::{socket,bind,send,recvfrom,setsockopt,getsockopt};
 use std::os::unix::io::{AsRawFd,RawFd};
 use std::io::{self,Error,Result,Read,Write};
-use std::mem;
 
 use self::mio::unix::EventedFd;
 use self::mio::{Evented, Poll, Token, Ready, PollOpt};
@@ -92,7 +91,7 @@ impl NetlinkSocket {
 			return Err(Error::last_os_error());
 		}
 
-		let mut sockaddr: libc::sockaddr_nl = unsafe { mem::zeroed() };
+		let mut sockaddr: libc::sockaddr_nl = unsafe { std::mem::zeroed() };
 		sockaddr.nl_family = libc::PF_NETLINK as libc::sa_family_t;
 		sockaddr.nl_pid = unsafe { getpid() } as u32;
 		sockaddr.nl_groups = groups;
@@ -176,7 +175,7 @@ impl NetlinkSocket {
 		self.getsockopt_int(libc::SOL_SOCKET, libc::SO_RCVBUF)
 	}
 
-	pub fn getsockopt(&mut self, option: SockOpt, val: bool) -> Result<u32> {
+	pub fn getsockopt(&mut self, option: SockOpt) -> Result<u32> {
 		self.getsockopt_int(libc::SOL_NETLINK, option as c_int)
 	}
 }

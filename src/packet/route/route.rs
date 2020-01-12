@@ -1,4 +1,7 @@
 //! Route operations
+
+#![allow(unused_imports, bare_trait_objects)]
+
 use packet::route::{RouteCacheInfoPacket, RtMsgPacket, MutableIfInfoPacket, IfInfoPacket,
                     RtAttrIterator, RtAttrPacket, MutableRtAttrPacket};
 use packet::netlink::NetlinkPacket;
@@ -58,10 +61,10 @@ impl RtmFlags {
     }
 }
 
-/// Each netlink family has a set of 32 multicast groups. The ROUTE family defines the
-/// following values, which can be passed to `NetlinkSocket::bind`, eventually
-/// ending up in the `sockaddr_nl` struct's `nl_groups` field. From `linux/rtnetlink.h`.
 bitflags! {
+    /// Each netlink family has a set of 32 multicast groups. The ROUTE family defines the
+    /// following values, which can be passed to `NetlinkSocket::bind`, eventually
+    /// ending up in the `sockaddr_nl` struct's `nl_groups` field. From `linux/rtnetlink.h`.
     pub struct MulticastGroup: u32 {
         const RTMGRP_NONE = 0x0;
 
@@ -127,7 +130,7 @@ impl Route {
                 ifinfo
             })
             .build();
-        let mut reply = conn.send(req);
+        let reply = conn.send(req);
         RoutesIterator { iter: reply.into_iter() }
     }
 

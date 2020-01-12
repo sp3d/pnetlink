@@ -1,5 +1,4 @@
 //! Neighbor (ARP, etc.) operations
-use libc;
 use std::io::{self, Read, Write};
 use std::mem;
 use std::net::IpAddr;
@@ -8,17 +7,23 @@ use byteorder::{ByteOrder, NativeEndian};
 
 use packet::route::addr::Addr;
 use packet::route::{NeighbourDiscoveryPacket, MutableNeighbourDiscoveryPacket, RtAttrIterator,
-                    RtAttrPacket, MutableRtAttrPacket, RtAttrMtuPacket};
+                    RtAttrPacket};
 use packet::route::link::Link;
-use packet::netlink::{MutableNetlinkPacket, NetlinkPacket, NetlinkErrorPacket};
+use packet::netlink::NetlinkPacket;
 use packet::netlink::NetlinkMsgFlags;
 use packet::netlink::{NetlinkBufIterator, NetlinkReader, NetlinkRequestBuilder};
-use ::socket::{NetlinkSocket, NetlinkProtocol};
 use packet::netlink::NetlinkConnection;
-use pnet::packet::MutablePacket;
 use pnet::packet::Packet;
-use pnet::packet::PacketSize;
 use pnet::util::MacAddr;
+
+/*
+use libc;
+use packet::route::{MutableRtAttrPacket, RtAttrMtuPacket};
+use packet::netlink::{MutableNetlinkPacket, NetlinkErrorPacket};
+use ::socket::{NetlinkSocket, NetlinkProtocol};
+use pnet::packet::MutablePacket;
+use pnet::packet::PacketSize;
+*/
 
 // rt message types
 pub const RTM_NEWNEIGH: u16 = 28;
@@ -167,8 +172,8 @@ impl ::std::fmt::Debug for Neighbour {
                self.get_ifindex(),
                self.get_state(),
                self.get_flags(),
-               self.get_type());
-        self.with_rta_iter(|mut iter| {
+               self.get_type())?;
+        self.with_rta_iter(|iter| {
             for rta in iter {
                 match NeighbourAttributes::from(rta.get_rta_type()) {
                     NeighbourAttributes::LLADDR => {
@@ -179,29 +184,30 @@ impl ::std::fmt::Debug for Neighbour {
                                                     payload[3],
                                                     payload[4],
                                                     payload[5]);
-                        write!(f, " lladdr: {:?}", mac_addr);
+                        write!(f, " lladdr: {:?}", mac_addr)?;
                     }
                     NeighbourAttributes::VLAN => {
-                        write!(f, " vlan id: {:?}", rta.payload());
+                        write!(f, " vlan id: {:?}", rta.payload())?;
                     }
                     NeighbourAttributes::DST => {
                         match rta.get_rta_len() {
                             // 4 for the rta header, then 4 or 16.
                             8 | 20 => {
                                 let addr = Addr::ip_from_family_and_bytes(family, rta.payload());
-                                write!(f, " {:?}", addr);
+                                let _ = write!(f, " {:?}", addr)?;
                             }
                             l => {
-                                write!(f, "unknown address length {:?}", l);
+                                let _ = write!(f, "unknown address length {:?}", l)?;
                             }
                         }
                     }
                     _ => {
-                        write!(f, " unknown attribute {:?}", rta);
+                        let _ = write!(f, " unknown attribute {:?}", rta)?;
                     }
                 }
             }
-        });
+            Ok(())
+        })?;
         Ok(())
     }
 }
@@ -237,7 +243,7 @@ impl Neighbours for NetlinkConnection {
                 }
                 .build())
             .build();
-        try!(self.write(req.packet()));
+        self.write(req.packet())?;
         let reader = NetlinkReader::new(self);
         Ok(Box::new(NeighboursIterator { iter: reader.into_iter() }))
     }
@@ -251,7 +257,7 @@ impl Neighbours for NetlinkConnection {
     // .get_packet())
     // .build()
     // };
-    // try!(self.write(req.get_packet().packet()));
+    // self.write(req.get_packet().packet())?;
     // let reader = NetlinkReader::new(self);
     // let li = NeighboursIterator { iter: reader.into_iter() };
     // Ok(li.last())
@@ -269,7 +275,7 @@ impl Neighbours for NetlinkConnection {
     // let req = NetlinkRequestBuilder::new(RTM_NEWLINK, NLM_F_CREATE | NLM_F_EXCL | NLM_F_ACK)
     // .append(neigh.get_packet())
     // .build();
-    // try!(self.write(req.get_packet().packet()));
+    // self.write(req.get_packet().packet())?;
     // let reader = NetlinkReader::new(self);
     // reader.read_to_end()
     // }
@@ -287,7 +293,7 @@ impl Neighbours for NetlinkConnection {
     // })
     // .build()
     // };
-    // try!(self.write(req.get_packet().packet()));
+    // self.write(req.get_packet().packet())?;
     // let reader = NetlinkReader::new(self);
     // reader.read_to_end()
     // }
@@ -387,7 +393,6 @@ impl Neighbour {
     }
 
     fn dump_neighbour(msg: NetlinkPacket) {
-        use std::ffi::CStr;
         if msg.get_kind() != RTM_NEWNEIGH {
             return;
         }
@@ -420,7 +425,7 @@ struct NeighbourDiscoveryPacketBuilder {
 impl NeighbourDiscoveryPacketBuilder {
     pub fn new() -> Self {
         let len = MutableNeighbourDiscoveryPacket::minimum_packet_size();
-        let mut data = vec![0; len];
+        let data = vec![0; len];
         NeighbourDiscoveryPacketBuilder { data: data }
     }
 
@@ -484,7 +489,7 @@ mod tests {
     #[test]
     fn dump_lo_neighbours() {
         use ::packet::netlink::NetlinkConnection;
-        use ::packet::route::link::{Link, Links};
+        use ::packet::route::link::Links;
         use ::packet::route::neighbour::{Neighbour, Neighbours};
 
         let mut conn = NetlinkConnection::new();

@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 //! Netlink packet handling
 use ::socket::{NetlinkSocket,NetlinkProtocol};
 use libc;
