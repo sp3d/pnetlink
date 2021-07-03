@@ -1,19 +1,19 @@
 use bytes::BytesMut;
 use futures::task::Poll;
 use std::io;
-use tokio_crate::io::PollEvented;
+use tokio_crate::io::unix::AsyncFd;
 use ::socket;
 use ::packet::netlink::{NetlinkPacket,MutableNetlinkPacket,NetlinkMsgFlags};
 use pnet::packet::{Packet,PacketSize};
 use std::pin::Pin;
 use futures::task::Context;
-use futures::pin_mut;
+//use futures::pin_mut;
 
 #[cfg(test)]
 use ::packet::route::{MutableIfInfoPacket};
 
 pub struct NetlinkSocket {
-    io: PollEvented<::socket::NetlinkSocket>,
+    io: AsyncFd<::socket::NetlinkSocket>,
 }
 
 impl NetlinkSocket {
@@ -23,7 +23,7 @@ impl NetlinkSocket {
     }
 
     fn new(socket: ::socket::NetlinkSocket) -> io::Result<NetlinkSocket> {
-        let io = PollEvented::new(socket)?;
+        let io = AsyncFd::new(socket)?;
         Ok(NetlinkSocket { io: io })
     }
 
@@ -79,11 +79,25 @@ impl tokio_crate::io::AsyncRead for NetlinkSocket {
     fn poll_read(
        mut self: Pin<&mut Self>,
        cx: &mut Context,
-       buf: &mut [u8]
-    ) -> Poll<Result<usize, io::Error>> {
-		let io = &mut self.io;
-		pin_mut!(io);
-		io.poll_read(cx, buf)
+       buf: &mut tokio::io::ReadBuf
+    ) -> Poll<Result<(), io::Error>> {
+        use std::io::Read;
+        loop {
+            let mut guard = futures::ready!(self.io.poll_read_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().read(buf.initialize_unfilled())) {
+                Ok(result) => match result {
+                    Ok(count) => {
+                        buf.advance(count);
+                        return Poll::Ready(Ok(()))
+                    },
+                    Err(e) => {
+                        return Poll::Ready(Err(e))
+                    },
+                }
+                Err(_would_block) => continue,
+            }
+        }
     }
 }
 
@@ -92,35 +106,31 @@ impl tokio_crate::io::AsyncWrite for NetlinkSocket {
         mut self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &[u8]
-	) -> Poll<Result<usize, io::Error>> {
-		let io = &mut self.io;
-		let out = {
-			pin_mut!(io);
-			io.poll_write(cx, buf)
-		};
-	    //self.io = io;
-	    out
-	}
+    ) -> Poll<Result<usize, io::Error>> {
+        use std::io::Write;
+        loop {
+            let mut guard = futures::ready!(self.io.poll_write_ready_mut(cx))?;
+
+            match guard.try_io(|inner| inner.get_mut().write(buf)) {
+                Ok(result) => return Poll::Ready(result),
+                Err(_would_block) => continue,
+            }
+        }
+    }
 
     fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context
-	) -> Poll<Result<(), io::Error>> {
-		let io = &mut self.io;
-		let out = {
-			pin_mut!(io);
-			io.poll_flush(cx)
-	    };
-	    //self.io = io;
-	    out
-	}
+        self: Pin<&mut Self>,
+        _cx: &mut Context
+    ) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
 
     fn poll_shutdown(
         self: Pin<&mut Self>,
         _cx: &mut Context
-	) -> Poll<Result<(), io::Error>> {
-	    Poll::Ready(Ok(()))
-	}
+    ) -> Poll<Result<(), io::Error>> {
+        Poll::Ready(Ok(()))
+    }
 }
 
 
@@ -205,11 +215,12 @@ impl NetlinkRequestBuilder {
 #[test]
 fn try_tokio_conn() {
     use futures::sink::{Sink, SinkExt};
-    use futures::StreamExt;
+    use futures::{StreamExt, TryFutureExt};
     use ::packet::route::link::Link;
 
-    let mut runtime = tokio_crate::runtime::Builder::new().enable_io().build().unwrap();
-    let sock = runtime.enter(|| NetlinkSocket::bind(socket::NetlinkProtocol::Route, 0).unwrap());
+    let runtime = tokio_crate::runtime::Builder::new_current_thread().enable_io().build().unwrap();
+    let _guard = runtime.enter();
+    let sock = NetlinkSocket::bind(socket::NetlinkProtocol::Route, 0).unwrap();
     println!("Netlink socket bound");
     let mut framed = tokio_util::codec::Framed::new/*tokio_crate::io::AsyncRead::framed*/(sock, NetlinkCodec {});
 
