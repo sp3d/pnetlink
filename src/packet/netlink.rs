@@ -6,9 +6,38 @@ use libc;
 use std::io;
 use std::io::{Read,BufRead,BufReader,Write};
 use std::marker::PhantomData;
-use pnet::packet::{Packet,PacketSize,FromPacket};
+use pnet::packet::{Packet,PacketSize,FromPacket,PrimitiveValues};
+use pnet_macros::Packet;
+use pnet_macros_support::types::*;
 
-include!(concat!(env!("OUT_DIR"), "/netlink.rs"));
+#[derive(Packet)]
+pub struct Netlink {
+    length: u32he,
+    kind: u16he, // NOOP | ERROR | DONE | OVERRUN
+    #[construct_with(u16he)] flags: NetlinkMsgFlags,
+    seq: u32he,
+    pid: u32he,
+    #[payload]
+    #[length_fn = "payload_length"]
+    payload: Vec<u8>,
+}
+
+#[derive(Packet)]
+pub struct NetlinkError {
+    error: u32he, // must be i32he
+    #[payload] payload: Vec<u8>,
+}
+
+impl PrimitiveValues for NetlinkMsgFlags {
+    type T = (u16,);
+    fn to_primitive_values(&self) -> (u16,) {
+        (self.bits(),)
+    }
+}
+
+fn payload_length(pkt: &NetlinkPacket) -> usize {
+    pkt.get_length() as usize - 16
+}
 
 bitflags! {
     pub struct NetlinkMsgFlags: u16 {

@@ -2,7 +2,6 @@
 name = "pnetlink"
 version = "0.0.3"
 authors = ["Alexander Polakov <plhk@sdf.org>"]
-build = "build.rs"
 description = "Netlink library in pure rust"
 repository = "https://github.com/polachok/pnetlink"
 readme = "README.md"
@@ -18,15 +17,15 @@ bytes = "0.5"
 futures = "0.3"
 libc = "0.2"
 mio = "0.6"
-pnet = "0.26"
-pnet_macros_support = "0.26"
-pnet_packet = "0.26"
+pnet = "0.28"
+pnet_macros = "0.28"
+pnet_macros_support = "0.28"
+pnet_packet = "0.28"
 tokio = { version = "1.8", features = [ "io-util", "net" ] }
 tokio-util = { version = "0.2", features = [ "codec" ] }
 
 [build-dependencies]
-pnet_macros = "0.26"
-syntex = "0.42"
+pnet_macros = "0.28"
 
 [dev-dependencies]
 tokio = { version = "1.8", features = [ "io-util", "net", "rt-multi-thread" ] }

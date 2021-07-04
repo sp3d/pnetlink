@@ -13,7 +13,7 @@ use pnet::packet::MutablePacket;
 use libc;
 */
 
-include!(concat!(env!("OUT_DIR"), "/audit/audit.rs"));
+include!("audit.rs");
 
 pub trait Audit where Self: Read + Write {
     fn audit_enable<'a>(&'a mut self) -> ::std::io::Result<()>;

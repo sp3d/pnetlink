@@ -8,7 +8,185 @@ pub mod neighbour;
 pub mod route;
 pub mod rule;
 
-include!(concat!(env!("OUT_DIR"), "/route/route.rs"));
+use pnet_macros_support::types::*;
+use pnet_macros::packet;
+use pnet::packet::PrimitiveValues;
+use packet::route::link::{IfFlags,IfType};
+use packet::route::addr::{IfAddrFlags,Scope};
+use packet::route::neighbour::{NeighbourFlags,NeighbourState};
+
+#[packet]
+pub struct IfInfo {
+    family: u8,
+    _pad: u8,
+    #[construct_with(u16he)]
+    type_: IfType,
+    index: u32he,
+    #[construct_with(u32he)]
+    flags: IfFlags,
+    change: u32he,
+    #[payload]
+    payload: Vec<u8>
+}
+
+impl PrimitiveValues for IfFlags {
+    type T = (u32,);
+    fn to_primitive_values(&self) -> (u32,) {
+        (self.bits(),)
+    }
+}
+
+impl PrimitiveValues for IfType {
+    type T = (u16,);
+    fn to_primitive_values(&self) -> (u16,) {
+        use std::mem;
+        unsafe { (mem::transmute(*self),) }
+    }
+}
+
+impl PrimitiveValues for Scope {
+    type T = (u8,);
+    fn to_primitive_values(&self) -> (u8,) {
+        use std::mem;
+        unsafe { (mem::transmute(*self),) }
+    }
+}
+
+impl PrimitiveValues for IfAddrFlags {
+    type T = (u8,);
+    fn to_primitive_values(&self) -> (u8,) {
+        (self.bits(),)
+    }
+}
+
+#[packet]
+pub struct IfAddr {
+    family: u8,
+    prefix_len: u8,
+    #[construct_with(u8)]
+    flags: IfAddrFlags,
+    #[construct_with(u8)]
+    scope: Scope,
+    index: u32he,
+    #[payload]
+    payload: Vec<u8>
+}
+
+/* IfAddr cache_info struct */
+#[packet]
+pub struct IfAddrCacheInfo {
+    ifa_prefered: u32he,
+    ifa_valid: u32he,
+    created: u32he, /* created timestamp, hundredths of seconds */
+    updated: u32he, /* updated timestamp, hundredths of seconds */
+    #[payload]
+    #[length="0"]
+    payload: Vec<u8>,
+}
+
+#[packet]
+pub struct NeighbourDiscovery {
+    family: u8,
+    pad1: u8,
+    pad2: u16he,
+    ifindex: u32he, // Should be i32he, not implemented?
+    #[construct_with(u16le)]
+    state: NeighbourState,
+    #[construct_with(u8)]
+    flags: NeighbourFlags,
+    type_: u8,
+    #[payload]
+    payload: Vec<u8>,
+}
+
+impl PrimitiveValues for NeighbourFlags {
+    type T = (u8,);
+    fn to_primitive_values(&self) -> (u8,) {
+        (self.bits(),)
+    }
+}
+
+impl PrimitiveValues for NeighbourState {
+    type T = (u16,);
+    fn to_primitive_values(&self) -> (u16,) {
+        (self.bits(),)
+    }
+}
+
+#[packet]
+pub struct RtMsg {
+    rtm_family: u8,
+    rtm_dst_len: u8,
+    rtm_src_len: u8,
+    rtm_tos: u8,
+
+    rtm_table: u8, /* Routing table id */
+    rtm_protocol: u8, /* Routing protocol */
+    #[construct_with(u8)]
+    rtm_scope: Scope,
+
+    rtm_flags: u32he,
+    _padding: u8,
+    #[payload]
+    payload: Vec<u8>,
+}
+
+/* rta_cacheinfo: linux/rtnetlink.h */
+#[packet]
+pub struct RouteCacheInfo {
+    rta_clntref: u32he,
+    rta_lastuse: u32he,
+    rta_expires: u32he,
+    rta_error: u32he,
+    rta_used: u32he,
+    rta_id: u32he,
+    rta_ts: u32he,
+    rta_tsusage: u32he,
+    #[payload]
+    #[length="0"]
+    payload: Vec<u8>,
+}
+
+/* fib_rule_hdr: linux/fib_rules.h */
+#[packet]
+pub struct FibRule {
+    family: u8,
+    dst_len: u8,
+    src_len: u8,
+    tos: u8,
+
+    table: u8,
+    res1: u8,
+    res2: u8,
+    action: u8,
+
+    flags: u32he,
+    #[payload]
+    payload: Vec<u8>,
+}
+
+#[packet]
+pub struct RtAttr {
+    rta_len: u16he,
+    rta_type: u16he,
+    #[payload]
+    #[length_fn = "rtattr_len"]
+    payload: Vec<u8>,
+}
+
+fn rtattr_len(pkt: &RtAttrPacket) -> usize {
+    pkt.get_rta_len() as usize - 4
+}
+
+#[packet]
+pub struct RtAttrMtu {
+    rta_len: u16he,
+    rta_type: u16he,
+    mtu: u32he,
+    #[payload]
+    #[length = "0"]
+    _payload: Vec<u8>,
+}
 
 const RTA_ALIGNTO: usize = 4;
 

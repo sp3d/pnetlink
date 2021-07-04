@@ -1,5 +1,5 @@
 use pnet_macros_support::types::*;
-use pnet::packet::PrimitiveValues;
+use pnet_macros::packet;
 
 #[packet]
 pub struct AuditStatus {
