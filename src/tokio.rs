@@ -159,11 +159,10 @@ impl tokio_util::codec::Decoder for NetlinkCodec {
     }
 }
 
-impl tokio_util::codec::Encoder for NetlinkCodec {
-    type Item = NetlinkPacket<'static>;
+impl<'a> tokio_util::codec::Encoder<&'a NetlinkPacket<'a>> for NetlinkCodec {
     type Error = io::Error;
 
-    fn encode(&mut self, msg: Self::Item, buf: &mut BytesMut) -> io::Result<()> {
+    fn encode(&mut self, msg: &'a NetlinkPacket<'a>, buf: &mut BytesMut) -> io::Result<()> {
         let data = msg.packet();
         buf.extend_from_slice(data);
         Ok(())

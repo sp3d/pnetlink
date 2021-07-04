@@ -22,7 +22,7 @@ pnet_macros = "0.28"
 pnet_macros_support = "0.28"
 pnet_packet = "0.28"
 tokio = { version = "1.8", features = [ "io-util", "net" ] }
-tokio-util = { version = "0.2", features = [ "codec" ] }
+tokio-util = { version = "0.6", features = [ "codec" ] }
 
 [build-dependencies]
 pnet_macros = "0.28"
