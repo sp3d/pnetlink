@@ -261,10 +261,9 @@ fn try_tokio_conn() {
 fn try_mio_conn() {
     use mio::*;
 
-    let poll = Poll::new().unwrap();
+    let mut poll = Poll::new().unwrap();
     let mut sock = socket::NetlinkSocket::bind(socket::NetlinkProtocol::Route, 0).unwrap();
-    poll.register(&sock, Token(0), Ready::writable() | Ready::readable(),
-              PollOpt::edge()).unwrap();
+    poll.registry().register(&mut sock, Token(0), Interest::WRITABLE | Interest::READABLE).unwrap();
 
     let pkt = NetlinkRequestBuilder::new(18 /* RTM GETLINK */, NetlinkMsgFlags::NLM_F_DUMP).append(
         {
@@ -284,7 +283,7 @@ fn try_mio_conn() {
             match event.token() {
                 Token(0) => {
                     println!("EVENT: {:?}", event);
-                    if event.readiness() == Ready::writable() {
+                    if event.is_writable() {
                         use std::io::Write;
                         if !written {
                             println!("WRITABLE");
@@ -292,7 +291,7 @@ fn try_mio_conn() {
                             written = true;
                         }
                     }
-                    if event.readiness() & Ready::readable() == Ready::readable() {
+                    if event.is_readable() {
                         use std::io::Read;
                         println!("Reading");
                         'read: loop {

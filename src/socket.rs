@@ -7,8 +7,8 @@ use libc::{socket,bind,send,recvfrom,setsockopt,getsockopt};
 use std::os::unix::io::{AsRawFd,RawFd};
 use std::io::{self,Error,Result,Read,Write};
 
-use self::mio::unix::EventedFd;
-use self::mio::{Evented, Poll, Token, Ready, PollOpt};
+use self::mio::unix::SourceFd;
+use self::mio::{event::Source, Interest, Registry, Token};
 
 #[repr(C)]
 #[derive(Debug)]
@@ -187,33 +187,31 @@ impl Read for NetlinkSocket {
 }
 
 impl Write for NetlinkSocket {
-    fn write(&mut self, buf: &[u8]) -> ::std::io::Result<usize> {
-        self.send(buf)
-    }
+	fn write(&mut self, buf: &[u8]) -> ::std::io::Result<usize> {
+		self.send(buf)
+	}
 
-    fn flush(&mut self) -> ::std::io::Result<()> {
-        Ok(())
-    }
+	fn flush(&mut self) -> ::std::io::Result<()> {
+		Ok(())
+	}
 }
 
-impl Evented for NetlinkSocket {
-    fn register(&self,
-                poll: &Poll,
-                token: Token,
-                events: Ready,
-                opts: PollOpt) -> io::Result<()> {
-        EventedFd(&self.as_raw_fd()).register(poll, token, events, opts)
-    }
+impl Source for NetlinkSocket {
+	fn register(&mut self,
+				registry: &Registry,
+				token: Token,
+				interests: Interest) -> io::Result<()> {
+		SourceFd(&self.as_raw_fd()).register(registry, token, interests)
+	}
 
-    fn reregister(&self,
-                  poll: &Poll,
-                  token: Token,
-                  events: Ready,
-                  opts: PollOpt) -> io::Result<()> {
-        EventedFd(&self.as_raw_fd()).reregister(poll, token, events, opts)
-    }
+	fn reregister(&mut self,
+				registry: &Registry,
+				token: Token,
+				interests: Interest) -> io::Result<()> {
+		SourceFd(&self.as_raw_fd()).reregister(registry, token, interests)
+	}
 
-    fn deregister(&self, poll: &Poll) -> io::Result<()> {
-        EventedFd(&self.as_raw_fd()).deregister(poll)
-    }
+	fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+		SourceFd(&self.as_raw_fd()).deregister(registry)
+	}
 }
